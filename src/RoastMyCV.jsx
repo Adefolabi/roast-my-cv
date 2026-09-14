@@ -1,36 +1,50 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { submitRoast } from "./api";
 
 /* ------------------------------------------------------------------ */
-/*  MOCK DATA — swap these out when the real API is wired up          */
+/*  STATIC CONFIG                                                      */
 /* ------------------------------------------------------------------ */
 
+// ids must match the persona keys in backend/src/lib/buildPrompt.js
 const VOICES = [
-  {
-    id: "savage",
-    name: "Savage",
-    emoji: "🔥",
-    tagline: "No mercy. No survivors.",
-  },
-  {
-    id: "british",
-    name: "Dry British Recruiter",
-    emoji: "🫖",
-    tagline: "Devastating politeness.",
-  },
-  {
-    id: "drill",
-    name: "Drill Sergeant",
-    emoji: "🪖",
-    tagline: "DROP AND GIVE ME BULLET POINTS.",
-  },
-  {
-    id: "pirate",
-    name: "Pirate",
-    emoji: "🏴‍☠️",
-    tagline: "Yer CV be walkin' the plank.",
-  },
+	{
+		id: "savage",
+		name: "Savage",
+		tagline: "No mercy. No survivors.",
+	},
+	{
+		id: "dryBritishRecruiter",
+		name: "Dry British Recruiter",
+		tagline: "Devastating politeness.",
+	},
+	{
+		id: "drillSergeant",
+		name: "Drill Sergeant",
+		tagline: "DROP AND GIVE ME BULLET POINTS.",
+	},
+	{
+		id: "pidgin",
+		name: "pidgin",
+		tagline: "Nigerian pidgin..You go muzz",
+	},
 ];
+
+// display label + fallback emoji per category returned by the backend
+// (backend/src/lib/categories.js is the source of truth for the keys)
+const CATEGORY_META = {
+  vague_metrics: { label: "Vague Metrics" },
+  buzzword_soup: { label: "Buzzword Soup" },
+  wall_of_text: { label: "Wall of Text" },
+  passive_voice: { label: "Passive Voice"},
+  no_summary: { label: "No Summary" },
+  generic_bullet: { label: "Generic Bullet" },
+  generic: { label: "General" },
+};
+
+function getCategoryMeta(category) {
+  return CATEGORY_META[category] || CATEGORY_META.generic;
+}
 
 const LOADING_LINES = [
   "Reading between the bullet points...",
@@ -42,58 +56,6 @@ const LOADING_LINES = [
   "Consulting the Roast Council...",
 ];
 
-const MOCK_FINDINGS = [
-  {
-    category: "Buzzword Density",
-    roastLine:
-      "You said 'synergy' three times. This isn't a resume, it's a LinkedIn fever dream.",
-    feedback:
-      "Replace vague buzzwords with concrete outcomes. Instead of 'leveraged synergies', try 'coordinated 3 teams to ship X, cutting delivery time 20%'.",
-    stickerEmoji: "💼",
-  },
-  {
-    category: "The Skills Section",
-    roastLine:
-      "'Proficient in Microsoft Word.' Congrats, so is every 12-year-old with a book report due.",
-    feedback:
-      "Cut baseline skills everyone has. Keep only skills that differentiate you for the specific role, and back each one with evidence elsewhere in the CV.",
-    stickerEmoji: "💀",
-  },
-  {
-    category: "Quantified Impact",
-    roastLine:
-      "Not a single number on this entire page. Did you accomplish things, or did things simply happen near you?",
-    feedback:
-      "Add metrics to your top 3-5 bullet points: revenue, users, time saved, error rates. Even rough estimates ('~30% faster') beat none.",
-    stickerEmoji: "📉",
-  },
-  {
-    category: "Font Crimes",
-    roastLine:
-      "Two different fonts AND Comic Sans in the header? Bold strategy. Illegal, but bold.",
-    feedback:
-      "Stick to one clean, ATS-friendly font (e.g. Calibri, Helvetica, Georgia) at 10.5–12pt. Consistency reads as attention to detail.",
-    stickerEmoji: "🔤",
-  },
-  {
-    category: "Length",
-    roastLine:
-      "Three pages for four years of experience? This isn't a memoir, nobody's optioning the film rights.",
-    feedback:
-      "Aim for one page under 10 years of experience. Cut oldest roles to one line each and remove anything that doesn't support your target job.",
-    stickerEmoji: "📜",
-  },
-  {
-    category: "The Objective Statement",
-    roastLine:
-      "'Seeking a challenging role in a dynamic environment.' So... a job. You're seeking a job. Groundbreaking.",
-    feedback:
-      "Replace the generic objective with a 2-line summary of what you actually deliver: your specialty, years of experience, and one headline achievement.",
-    stickerEmoji: "🎯",
-  },
-];
-
-const MOCK_LOADING_DURATION_MS = 5500; // total fake "roasting" time
 const LINE_CYCLE_MS = 1500; // how often the status line rotates
 
 /* ------------------------------------------------------------------ */
@@ -108,15 +70,29 @@ const HARD_SHADOW =
 /* ------------------------------------------------------------------ */
 
 export default function RoastMyCV() {
-  const [screen, setScreen] = useState("upload"); // 'upload' | 'loading' | 'results'
+  const [screen, setScreen] = useState("upload"); // 'upload' | 'loading' | 'results' | 'error'
   const [file, setFile] = useState(null);
   const [voice, setVoice] = useState(null);
+  const [findings, setFindings] = useState([]);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const startRoast = () => setScreen("loading");
-  const showResults = () => setScreen("results");
+  const startRoast = async () => {
+    setScreen("loading");
+    try {
+      const data = await submitRoast(file, voice.id);
+      setFindings(data.findings ?? []);
+      setScreen("results");
+    } catch (err) {
+      setErrorMessage(err.message || "Something went wrong roasting your CV.");
+      setScreen("error");
+    }
+  };
+
   const reset = () => {
     setFile(null);
     setVoice(null);
+    setFindings([]);
+    setErrorMessage("");
     setScreen("upload");
   };
 
@@ -152,16 +128,18 @@ export default function RoastMyCV() {
               onRoast={startRoast}
             />
           )}
-          {screen === "loading" && (
-            <LoadingScreen key="loading" onDone={showResults} />
-          )}
+          {screen === "loading" && <LoadingScreen key="loading" />}
           {screen === "results" && (
             <ResultsScreen
               key="results"
               fileName={file?.name ?? "your_cv.pdf"}
               voice={voice}
+              findings={findings}
               onReset={reset}
             />
+          )}
+          {screen === "error" && (
+            <ErrorScreen key="error" message={errorMessage} onReset={reset} />
           )}
         </AnimatePresence>
       </div>
@@ -355,7 +333,7 @@ function UploadScreen({ file, setFile, voice, setVoice, onRoast }) {
 /*  SCREEN 2 — LOADING / "ROASTING..."                                 */
 /* ------------------------------------------------------------------ */
 
-function LoadingScreen({ onDone }) {
+function LoadingScreen() {
   const [lineIndex, setLineIndex] = useState(0);
 
   useEffect(() => {
@@ -363,12 +341,8 @@ function LoadingScreen({ onDone }) {
       () => setLineIndex((i) => (i + 1) % LOADING_LINES.length),
       LINE_CYCLE_MS
     );
-    const done = setTimeout(onDone, MOCK_LOADING_DURATION_MS);
-    return () => {
-      clearInterval(cycle);
-      clearTimeout(done);
-    };
-  }, [onDone]);
+    return () => clearInterval(cycle);
+  }, []);
 
   return (
     <motion.div
@@ -408,13 +382,13 @@ function LoadingScreen({ onDone }) {
         </AnimatePresence>
       </div>
 
-      {/* progress bar */}
+      {/* indeterminate progress bar — real request duration varies */}
       <div className="mt-10 w-full max-w-sm h-3 rounded-full bg-neutral-100 border-2 border-black overflow-hidden">
         <motion.div
-          initial={{ width: "0%" }}
-          animate={{ width: "100%" }}
-          transition={{ duration: MOCK_LOADING_DURATION_MS / 1000, ease: "easeInOut" }}
-          className="h-full bg-orange-500"
+          initial={{ x: "-100%" }}
+          animate={{ x: "250%" }}
+          transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
+          className="h-full w-2/5 bg-orange-500 rounded-full"
         />
       </div>
       <p className="mt-3 text-xs text-neutral-400 font-medium">
@@ -428,7 +402,7 @@ function LoadingScreen({ onDone }) {
 /*  SCREEN 3 — RESULTS                                                 */
 /* ------------------------------------------------------------------ */
 
-function ResultsScreen({ fileName, voice, onReset }) {
+function ResultsScreen({ fileName, voice, findings, onReset }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -471,49 +445,46 @@ function ResultsScreen({ fileName, voice, onReset }) {
           show: { transition: { staggerChildren: 0.12, delayChildren: 0.2 } },
         }}
       >
-        {MOCK_FINDINGS.map((f, i) => (
-          <motion.li
-            key={i}
-            variants={{
-              hidden: { opacity: 0, y: 30, scale: 0.97 },
-              show: {
-                opacity: 1,
-                y: 0,
-                scale: 1,
-                transition: { type: "spring", stiffness: 120, damping: 16 },
-              },
-            }}
-            className="rounded-2xl border-2 border-black bg-white overflow-hidden flex flex-col"
-          >
-            {/* Roast half */}
-            <div className="p-5 sm:p-6">
-              <div className="flex items-start gap-4">
-                <div
-                  className="h-14 w-14 shrink-0 rounded-xl border-2 border-black bg-orange-50 flex items-center justify-center text-3xl leading-none"
-                  aria-hidden="true"
-                >
-                  {f.stickerEmoji}
-                </div>
-                <div className="min-w-0">
-                  <span className="inline-block text-[10px] font-black uppercase tracking-widest text-black bg-orange-400 border-2 border-black rounded-full px-2.5 py-0.5 mb-2">
-                    {f.category}
-                  </span>
-                  <p className="text-lg sm:text-xl font-extrabold leading-snug tracking-tight">
-                    “{f.roastLine}”
-                  </p>
+        {findings.map((f, i) => {
+          const meta = getCategoryMeta(f.category);
+          return (
+            <motion.li
+              key={i}
+              variants={{
+                hidden: { opacity: 0, y: 30, scale: 0.97 },
+                show: {
+                  opacity: 1,
+                  y: 0,
+                  scale: 1,
+                  transition: { type: "spring", stiffness: 120, damping: 16 },
+                },
+              }}
+              className="rounded-2xl border-2 border-black bg-white overflow-hidden flex flex-col"
+            >
+              {/* Roast half */}
+              <div className="p-5 sm:p-6">
+                <div className="flex items-start gap-4">
+                  <div className="min-w-0">
+                    <span className="inline-block text-[10px] font-black uppercase tracking-widest text-black bg-orange-400 border-2 border-black rounded-full px-2.5 py-0.5 mb-2">
+                      {meta.label}
+                    </span>
+                    <p className="text-lg sm:text-xl font-extrabold leading-snug tracking-tight">
+                      “{f.roastLine}”
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Serious-feedback half — calmer tone */}
-            <div className="bg-neutral-50 border-t-2 border-black px-5 sm:px-6 py-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-1.5">
-                💡 Okay but actually
-              </p>
-              <p className="text-sm text-neutral-700 leading-relaxed">{f.feedback}</p>
-            </div>
-          </motion.li>
-        ))}
+              {/* Serious-feedback half — calmer tone */}
+              <div className="bg-neutral-50 border-t-2 border-black px-5 sm:px-6 py-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-1.5">
+                  💡 Okay but actually
+                </p>
+                <p className="text-sm text-neutral-700 leading-relaxed">{f.feedback}</p>
+              </div>
+            </motion.li>
+          );
+        })}
       </motion.ul>
 
       {/* Footer actions */}
@@ -538,6 +509,41 @@ function ResultsScreen({ fileName, voice, onReset }) {
       <p className="mt-8 text-center text-xs text-neutral-400">
         Roasts are for entertainment. The feedback, unfortunately, is real.
       </p>
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  SCREEN 4 — ERROR                                                   */
+/* ------------------------------------------------------------------ */
+
+function ErrorScreen({ message, onReset }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.3 }}
+      className="flex flex-col items-center justify-center text-center min-h-[55vh] rounded-2xl border-2 border-black bg-white p-10"
+    >
+      <div
+        className="h-16 w-16 rounded-xl border-2 border-black bg-red-100 flex items-center justify-center text-4xl mb-8"
+        aria-hidden="true"
+      >
+        💥
+      </div>
+      <h2 className="text-3xl sm:text-4xl font-black tracking-tight mb-2">
+        The roast backfired
+      </h2>
+      <p className="mt-2 text-neutral-500 font-medium max-w-sm">{message}</p>
+      <motion.button
+        type="button"
+        onClick={onReset}
+        whileTap={{ scale: 0.98 }}
+        className={`mt-8 px-8 py-3.5 rounded-xl bg-orange-500 hover:bg-orange-400 border-2 border-black font-black ${HARD_SHADOW}`}
+      >
+        Try Again
+      </motion.button>
     </motion.div>
   );
 }
