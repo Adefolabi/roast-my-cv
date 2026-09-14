@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { submitRoast } from "./api";
+import { submitRoast, fetchShareCard } from "./api";
 
 /* ------------------------------------------------------------------ */
 /*  STATIC CONFIG                                                      */
@@ -403,6 +403,42 @@ function LoadingScreen() {
 /* ------------------------------------------------------------------ */
 
 function ResultsScreen({ fileName, voice, findings, onReset }) {
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState("");
+
+  const handleShare = async () => {
+    setSharing(true);
+    setShareError("");
+    try {
+      const blob = await fetchShareCard(findings, voice?.id);
+      const file = new File([blob], "roast-card.png", { type: "image/png" });
+
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "My CV Roast",
+          text: "I got my CV roasted 🔥",
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "roast-card.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      // user cancelling the native share sheet isn't an error
+      if (err?.name !== "AbortError") {
+        setShareError(err.message || "Couldn't generate your share card.");
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -425,14 +461,22 @@ function ResultsScreen({ fileName, voice, findings, onReset }) {
           </span>
         </p>
 
-        {/* Share button (non-functional for now) */}
+        {/* Share button */}
         <motion.button
           type="button"
-          whileTap={{ scale: 0.97 }}
-          className="mt-5 px-5 py-2.5 rounded-full border-2 border-black bg-white hover:bg-neutral-50 font-bold text-sm"
+          onClick={handleShare}
+          disabled={sharing}
+          whileTap={sharing ? {} : { scale: 0.97 }}
+          className={[
+            "mt-5 px-5 py-2.5 rounded-full border-2 border-black font-bold text-sm",
+            sharing ? "bg-neutral-100 text-neutral-400 cursor-not-allowed" : "bg-white hover:bg-neutral-50",
+          ].join(" ")}
         >
-          Share Your Roast 📤
+          {sharing ? "Generating…" : "Share Your Roast 📤"}
         </motion.button>
+        {shareError && (
+          <p className="mt-2 text-xs text-red-600 font-medium">{shareError}</p>
+        )}
       </header>
 
       {/* Finding cards — staggered entrance */}
@@ -499,10 +543,15 @@ function ResultsScreen({ fileName, voice, findings, onReset }) {
         </motion.button>
         <motion.button
           type="button"
-          whileTap={{ scale: 0.98 }}
-          className="w-full sm:w-auto px-8 py-3.5 rounded-xl border-2 border-black bg-white hover:bg-neutral-50 font-bold"
+          onClick={handleShare}
+          disabled={sharing}
+          whileTap={sharing ? {} : { scale: 0.98 }}
+          className={[
+            "w-full sm:w-auto px-8 py-3.5 rounded-xl border-2 border-black font-bold",
+            sharing ? "bg-neutral-100 text-neutral-400 cursor-not-allowed" : "bg-white hover:bg-neutral-50",
+          ].join(" ")}
         >
-          Share Your Roast 📤
+          {sharing ? "Generating…" : "Share Your Roast 📤"}
         </motion.button>
       </div>
 

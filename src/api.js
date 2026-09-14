@@ -36,3 +36,25 @@ export async function submitRoast(file, voiceId) {
 export function resolveStickerUrl(stickerPath) {
   return stickerPath ? `${API_BASE}${stickerPath}` : null;
 }
+
+/**
+ * Renders a shareable PNG "roast card" summarizing the given findings.
+ * @param {Array} findings - findings as returned by submitRoast (category, roastLine, sticker, ...)
+ * @param {string} voiceId - persona key, e.g. "savage"
+ * @returns {Promise<Blob>} PNG image blob
+ */
+export async function fetchShareCard(findings, voiceId) {
+  const res = await fetch(`${API_BASE}/api/share-card`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ findings, voice: voiceId }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const message = data?.message || `Request failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  return res.blob();
+}
